@@ -1,0 +1,584 @@
+# TIKO-AGENT vs HERMES-AGENT
+## Analisis Perbandingan Menyeluruh + Daftar Bug + Panduan Perbaikan Step-by-Step
+
+| Metadata | Nilai |
+|---|---|
+| Tanggal analisis | 15 November 2026 |
+| Snapshot Tiko | `kiosmarmer-commits/Tiko-Agent` @ `9b9b822` (main, 14 Nov 2026) — 724 file diunduh & dibaca penuh |
+| Snapshot Hermes | `NousResearch/hermes-agent` @ `18ea421` (main, 14 Nov 2026), rilis stabil v0.23.1 (10 Nov 2026) |
+| Metode | Audit kode sumber langsung (bukan hanya README), inspeksi DB/CI, verifikasi nomor baris tiap bug, silang dengan dokumen resmi Hermes |
+| Penulis | Analisis independen (klaim di dokumen internal Tiko diperlakukan sebagai klaim, bukan fakta) |
+
+---
+
+## DAFTAR ISI
+1. [Identitas & Skala Proyek](#1-identitas--skala-proyek)
+2. [Perbandingan Fitur (Matriks Lengkap)](#2-perbandingan-fitur)
+3. [Perbandingan Algoritma](#3-perbandingan-algoritma)
+4. [Kelebihan & Kelemahan](#4-kelebihan--kelemahan)
+5. [GUI, UI & UX](#5-gui-ui--ux)
+6. [Daftar Bug Tiko-Agent (Terverifikasi)](#6-daftar-bug-tiko-agent)
+7. [Perbaikan Step-by-Step per Bug](#7-perbaikan-step-by-step)
+8. [Roadmap & Kriteria Penerimaan](#8-roadmap--kriteria-penerimaan)
+9. [Kesimpulan](#9-kesimpulan)
+10. [Referensi](#10-referensi)
+
+---
+
+## 1. IDENTITAS & SKALA PROYEK
+
+| Aspek | Tiko-Agent | Hermes Agent |
+|---|---|---|
+| Pengembang | kiosmarmer-commits (+ kontributor AI `mistral-vibe`) | Nous Research (lab di balik model Hermes/Nomos/Psyche) |
+| Bahasa | Dart 96,9% (Flutter untuk UI) | Python 71,6% + TypeScript 24,9% (desktop/web) |
+| Lisensi | GPL-3.0 | MIT |
+| Ukuran kode | 564 file Dart, ±107.858 baris | Sangat besar (71.872 commit, monorepo Python+TS) |
+| Test | 230 file test, ±1.418 test case | Ribuan test (tests/, tests-js/, evals/, fixture/) |
+| Riwayat | 58 commit, 17 branch, 4 kontributor; mayoritas ditulis 8–14 Nov 2026 (AI-assisted, sangat cepat) | 71.872 commit, 3.212 branch, 50 rilis, 263,3k star, 59,3k fork |
+| Maturity | Prototipe lanjut / pra-produksi | Produksi, rilis terjadwal, security policy, supply-chain policy |
+| Distribusi | `dart compile exe`, skrip Termux, CI build Flutter 4 platform | Installer satu baris (Linux/macOS/WSL2/Windows native), Desktop installer, MSIX, APT repo Termux (stable+canary), Nix |
+| Ekosistem | Skills Hub client, katalog preset provider | Skills Hub, plugin catalog resmi + komunitas, Nous Portal (300+ model, Tool Gateway), importer migrasi (OpenClaw/Claude Code/Codex/Cursor) |
+| CI | 7 check hijau di main (analyze, test, Flutter web/Linux/macOS/Windows/Android, Termux) | CI berlapis + ratchet required-checks, repo-guards, supply-chain scan (osv-scanner, release-age gate) |
+
+**Implikasi:** Hermes adalah produk matang dengan feedback pengguna masif; Tiko adalah reimplementasi ambisius berbasis Dart yang mengejar paritas dalam ±1 minggu. Perbandingan yang adil harus memisahkan *arsitektur* (Tiko sering setara/lebih rapi) dari *maturity operasional* (Hermes jauh di depan).
+
+---
+
+## 2. PERBANDINGAN FITUR
+
+Legenda: ✅ penuh · ⚠️ sebagian/ modul ada tapi belum matang · ❌ tidak ada
+
+### 2.1 Inti Agent
+| Fitur | Hermes | Tiko | Catatan |
+|---|---|---|---|
+| Agent loop ReAct + tool calling | ✅ | ✅ | Tiko: `agent_loop.dart` (655 brs) dengan budget 4 dimensi |
+| Budget guard (iterasi/token/waktu/tool-call) | ⚠️ (iteration & input budget) | ✅ | Tiko lebih eksplisit: `budget_guard.dart` |
+| Interrupt & redirect (pesan baru memotong turn) | ✅ | ⚠️ | Tiko: cancellation kooperatif per turn (`cancellation.dart`), belum ada UX redirect |
+| Kompresi konteks | ✅ (compression child, lineage) | ✅ | Tiko: `compactor.dart` + `context_expander.dart` |
+| Context files (AGENTS.md/SOUL.md/.cursorrules) | ✅ 6 tipe | ⚠️ | Tiko: `context_files.dart` (805 brs), tipe lebih sedikit |
+| Referensi `@file` dalam prompt | ✅ | ✅ | `context_expander.dart` |
+| Personality / SOUL.md | ✅ | ⚠️ | Tiko belum punya padanan SOUL.md penuh |
+| Subagent / delegasi | ✅ (isolated subagents, pilih provider/model per subagent dari Desktop) | ✅ | Tiko: `spawn_subagent`, chain cancellation `/sub/` |
+| Multi-agent orchestration | ✅ (Bot Mode, group chat @mention, managed workers) | ✅ | Tiko: `TaskGraph` DAG + `TeamOrchestrator` paralel per-wave + `Blackboard` — desain DAG lebih eksplisit dari Hermes |
+| Programmatic Tool Calling (execute_code RPC, hemat konteks) | ✅ | ⚠️ | Tiko punya `ExecuteCodeTool`/`CodeExecutionTool` sandbox, tapi bukan pola RPC-collapse ala Hermes |
+| Batch processing & trajectory export | ✅ | ✅ | Tiko: `eval_harness.dart`, `trajectory.dart`, `golden.dart` |
+| RL training (Atropos) / self-evolution (DSPy+GEPA) | ✅ | ❌ | Tiko: `rl_pipeline.dart` masih scaffold |
+
+### 2.2 Learning Loop & Memori
+| Fitur | Hermes | Tiko | Catatan |
+|---|---|---|---|
+| Skill creation otomatis dari pengalaman | ✅ | ✅ | Tiko: `SelfLearningEngine` (978 brs) → **draft** |
+| Skill self-improvement saat dipakai | ✅ | ⚠️ | Tiko: feedback 👍/👎 + ledger + promotion gate, belum auto-rewrite saat use |
+| `/learn` (authoring skill dari dir/URL/percakapan) | ✅ | ❌ | Gap UX nyata |
+| Memory nudge periodik (agent-curated) | ✅ | ❌ | Tiko tidak punya mekanisme nudge |
+| User modeling (Honcho dialectic) | ✅ | ❌ | Tiko: adapter REST Honcho generik saja |
+| Cross-session recall FTS5 + ringkasan LLM | ✅ | ✅ | Tiko: FTS5/BM25 + RAG |
+| Hybrid retrieval dense+BM25 (RRF) + rerank | ⚠️ | ✅ | Tiko: `rag_pipeline.dart` — **lebih canggih secara algoritmik** |
+| Layered memory (episodic/semantic/procedural) + decay | ⚠️ | ✅ | Tiko: `memory_layers.dart` + Ebbinghaus decay |
+| Memory provider eksternal (Mem0, supermemory, Honcho, dll.) | ✅ 8+ | ✅ | Tiko: `memory_providers.dart` + router fan-out/merge berbobot |
+| Vault terenkripsi Argon2id + XChaCha20-Poly1305 | ❌ (bukan fitur inti) | ✅ | **Unik Tiko**: `simpul_core/vault_crypto.dart` + Shamir recovery |
+
+### 2.3 Provider & Ketahanan
+| Fitur | Hermes | Tiko | Catatan |
+|---|---|---|---|
+| Multi-provider (OpenAI/Anthropic/Gemini/Ollama/Azure/Bedrock…) | ✅ | ✅ | Tiko: 37 preset (`provider_presets.dart`) |
+| Agregator 300+ model satu OAuth (Nous Portal) | ✅ | ❌ | Tiko: OpenRouter preset ada, tanpa portal sendiri |
+| Ganti model runtime (`/model`) | ✅ | ⚠️ | Tiko: via config/CLI, bukan slash command parity |
+| Circuit breaker + health state machine | ✅ | ✅ | Tiko: `ProviderHealth` terpadu (OPT-2), breaker = adapter tipis |
+| Credential pool + rotasi | ✅ | ✅ | Tiko: `credential_pool.dart`, `credential_manager.dart` (**ada bug B-02**) |
+| Fallback chain provider | ✅ | ✅ | Tiko: single-count failure, probe half-open |
+| Prompt caching (Anthropic cache_control) | ✅ | ✅ | Tiko: TTL 1 jam, maks 4 breakpoint |
+| OAuth device flow | ✅ | ✅ | `oauth_device.dart` |
+
+### 2.4 Tools, Sandbox & Eksekusi
+| Fitur | Hermes | Tiko | Catatan |
+|---|---|---|---|
+| Jumlah tool bawaan | 60+ | ±40+ | Tiko termasuk domain unik: prediksi pasar & kalkulator |
+| Terminal backend | ✅ 6: local, Docker, SSH, Modal, Daytona, **Vercel Sandbox** + plugin Singularity | ⚠️ 5: **bubblewrap**, Docker hardened, SSH, Modal, Daytona | Tiko unggul di bubblewrap (namespace Linux ringan); kalah di Vercel & Singularity |
+| Serverless persistence (hibernasi idle) | ✅ (Daytona/Modal) | ⚠️ | Tiko: klien cloud ada, manajemen hibernasi belum setara |
+| Browser automation | ✅ (cloud Browser Use + lokal) | ✅ | Tiko: CDP + Browserbase/Browser Use + fallback Chromium lokal |
+| MCP (stdio/HTTP/OAuth, filter tool) | ✅ | ✅ | Tiko: `mcp/` loader + sandbox gating |
+| Skills standard agentskills.io + Hub | ✅ | ✅ | Tiko: konverter 2 arah + audit SHA-256 + static scan |
+| Plugin system | ✅ (catalog, isolasi host, capability consent, `ctx.fork_session`) | ⚠️ | Tiko: hook veto/rewrite in-process (`plugin_system.dart`), **tanpa isolasi proses** |
+| Code execution sandbox | ✅ | ✅ | Tiko fail-closed: tanpa sandbox → tolak eksekusi |
+
+### 2.5 Gateway, Voice, Scheduler
+| Fitur | Hermes | Tiko | Catatan |
+|---|---|---|---|
+| Platform pesan | ✅ 20+ (Telegram, Discord, Slack, WA, Signal, Matrix, Mattermost, Email, SMS, Teams, Google Chat, DingTalk, Feishu, WeCom, Weixin, QQ, Yuanbao, BlueBubbles, Home Assistant…) | ⚠️ ±10 (Telegram, Discord, Slack, WA, Email IMAP/SMTP, Matrix, Signal, webhook, CLI) | Gap terbesar Tiko ada di sini |
+| Voice mode real-time (CLI/Telegram/Discord VC) | ✅ | ⚠️ | Tiko: voice loop, wake word, Discord voice (kripto custom teruji RFC), 10 provider TTS — belum setara real-time |
+| STT | ✅ (faster-whisper lokal) | ⚠️ | Tiko: `stt.dart` generik |
+| Cron + delivery ke semua platform | ✅ | ✅ | Tiko: `scheduler.dart` + timezone |
+| Bot Mode (bot bernama, model/memori/skill sendiri) | ✅ | ❌ | Tiko: multi-agent ada, tapi bukan "bot persona persisten per chat" |
+| Image gen / vision / TTS breadth | ✅ (FAL 11 model, OpenAI, TTS) | ✅ | Tiko: FAL queue + OpenAI Images + 10 TTS |
+
+### 2.6 API, IDE, Keamanan
+| Fitur | Hermes | Tiko | Catatan |
+|---|---|---|---|
+| API server OpenAI-compatible | ✅ | ✅ | Tiko: `openai_api.dart` (SSE + non-stream) — **terpisah** dari `api_server.dart` legacy yang buggy |
+| ACP (IDE: Zed/VS Code/JetBrains) | ✅ (`acp_adapter/`) | ✅ (`acp_agent.dart`) | setara |
+| Command approval + allowlist | ✅ | ✅ | Tiko: matrix fail-closed + taint |
+| DM pairing / otorisasi pengirim | ✅ | ⚠️ | Tiko: allowlist dasar per gateway |
+| Container isolation | ✅ | ✅ | Tiko Docker hardened: `--network none --read-only --cap-drop ALL --pids-limit 64` |
+| Prompt-injection guard | ✅ (content guard, masking) | ⚠️ | Tiko: regex 6 rule + korpus eval Indonesia 40 kasus — mudah di-bypass (lihat B-14) |
+| Redaksi secret di output/trajectory | ✅ (leaf-wise, termasuk JSON tool-call) | ⚠️ | Tiko: `redactor.dart` + PromptGuard output rules, belum cover trajectory export |
+| Supply-chain hardening (release-age, osv, attestation) | ✅ | ❌ | Tiko: `verify_deps.py` sederhana |
+| Secret storage aman | ✅ (auth.json 0600 sejak byte pertama, umask 077) | ❌ | **Bug B-01/B-02** — titik terlemah Tiko |
+
+### 2.7 Fitur Unik Tiko (tidak ada di Hermes)
+- **`packages/prediksi`** (44 file): prediksi pasar — analisis teknikal, makro, yield curve, ARIMA, Monte Carlo, random forest, LSTM biner, siklus Benner/halving, Elliott wave, backtest, manajemen risiko.
+- **`packages/agent_calc`**: kalkulator deterministik teruji.
+- **Simpul**: vault catatan kompatibel Obsidian, terenkripsi Argon2id, graph view, editor tabs/split/focus, TUI sendiri.
+- **Flutter multiplatform** (desktop/web/mobile) dalam satu codebase Dart.
+- **Termux eco-host**: agent berjalan di Android bekas via Dart AOT (hemat daya).
+
+---
+
+## 3. PERBANDINGAN ALGORITMA
+
+### 3.1 Agent Loop
+**Hermes:** turn-based session worker di gateway; kompresi konteks sebagai "compression child" dengan lineage; background review via `fork_session` (fork agen pasca-turn, tool whitelist, budget ketat, auto-deny approval); interrupt-and-redirect dari UI/pesan baru.
+
+**Tiko (`agent_loop.dart`):**
+```
+1. build context (compactor + context files + skill loader progresif)
+2. router pilih provider (tier + ProviderHealth)
+3. chat → jika error: fallback chain (tiap provider maks 1×, failure dihitung 1×)
+4. loop detector: tool+args identik ≥3× → stop
+5. permission SEKUENSIAL (matrix + taint; high/critical tak pernah auto)
+6. eksekusi tool: paralel HANYA untuk tool ber-flag parallel-safe
+7. sanitize args/hasil/output; taint sesi setelah tool eksternal
+8. budget check 4 dimensi; cancellation token di batas iterasi & batch
+9. persist best-effort; sintesis skill draft (opsional)
+```
+**Penilaian:** desain Tiko lebih *deterministik dan fail-closed*; Hermes lebih kaya fitur runtime (fork, lineage, redirect). Kelemahan Tiko: deteksi error pakai heuristik string `'[error]'` (bug B-10).
+
+### 3.2 Learning Loop
+**Hermes (closed loop produksi):** pengalaman → skill dibuat otomatis → skill membaik saat dipakai → nudge periodik memaksa persist pengetahuan → FTS5 recall + ringkasan LLM → Honcho memodelkan pengguna lintas sesi. Ditambah `/learn` dan repo terpisah `hermes-agent-self-evolution` (DSPy+GEPA mengoptimasi skill/prompt/kode).
+
+**Tiko:** trajectory → `SelfLearningEngine` sintesis skill **draft** → `SkillGate`: static scan → golden eval ≥0.8 → approve manual → `ReflectionEngine` menyuntik lesson ke prompt. Feedback 👍/👎 end-to-end (API+UI) dengan ledger tahan race.
+**Gap algoritmik Tiko:** (a) tidak ada self-improvement *saat use*; (b) tidak ada nudge; (c) tidak ada user modeling dialektik; (d) promotion butuh eval goldens yang belum banyak tersedia.
+
+### 3.3 Memori & Retrieval
+**Hermes:** FTS5 session search + LLM summarization; MEMORY.md/USER.md agent-curated.
+**Tiko:** chunking → query expansion → hybrid dense+BM25 → **RRF fusion** → rerank `0.4·fusedNorm + 0.4·semantic + 0.2·overlap` (dengan embedder) → konteks bersitasi; layered memory + decay Ebbinghaus; sqlite-vec default.
+**Penilaian:** Tiko **lebih maju di algoritma retrieval**; Hermes lebih maju di *kualitas ingatan* (kurasi, ringkasan, model pengguna).
+
+### 3.4 Routing & Ketahanan
+**Tiko:** tier router adaptif + `ProviderHealth` satu state machine (breaker = adapter) + credential pool round-robin + fallback chain single-count + prompt cache. **Hermes:** pemilihan route per model/`/fast` tier, health per route, credential reuse dari CLI eksternal.
+**Penilaian:** setara secara konsep; implementasi Tiko teruji unit (unified_health_test) tapi belum teruji beban produksi.
+
+### 3.5 Keamanan
+**Tiko:** matrix risiko (tool tak dikenal → high), taint tracking, ShellPolicy argv terstruktur + tolak metakarakter, dispatcher `R_cmd` memilih isolasi minimum, SSRF guard + pinned DNS, PathSafety kanonik, sandbox fail-closed.
+**Hermes:** approval patterns, DM pairing, isolasi backend, redaksi trajectory leaf-wise, pin loopback untuk plugin liveness, seeding kredensial 0600 atomik, supply-chain gate.
+**Penilaian:** *desain* Tiko sangat baik; *eksekusi detail* bocor di 3 modul (B-01..B-03). Hermes menang di konsistensi operasional.
+
+---
+
+## 4. KELEBIHAN & KELEMAHAN
+
+### 4.1 Tiko-Agent
+**Kelebihan**
+1. Satu bahasa (Dart) end-to-end: core, daemon, CLI, TUI, UI Flutter — binary AOT kecil, cocok eco-host/Termux.
+2. Desain fail-closed konsisten (sandbox none = tolak; tool asing = high risk; skill = draft).
+3. Algoritma retrieval (RRF+rerank+layered decay) lebih canggih dari Hermes.
+4. Sandbox bubblewrap ringan + Docker hardened + validasi argv SSH inert-token.
+5. Vault terenkripsi teraudit (Argon2id OWASP, XChaCha20-Poly1305, Shamir).
+6. CI multi-platform hijau + ±1.418 test untuk proyek berumur ±1 minggu.
+7. Domain unik: prediksi pasar, Simpul vault, kalkulator deterministik.
+8. Lisensi GPL-3.0 melindungi turunan tetap terbuka.
+
+**Kelemahan**
+1. Tiga modul keamanan justru tidak aman (SecretStore XOR-LCG, CredentialManager plaintext, ApiServer auth opsional) — lihat §6.
+2. Inkonsistensi SSRF antar jalur fetch (B-07).
+3. Gateway baru ±10 platform vs 20+ Hermes; tanpa Bot Mode.
+4. Learning loop belum closed (tanpa nudge, self-improvement-in-use, user modeling).
+5. Plugin in-process tanpa isolasi; belum ada supply-chain hardening.
+6. UX tersebar di 4 permukaan (web UI, Flutter, TUI, Simpul) tanpa parity slash-command.
+7. Dokumentasi status menumpuk (97 file MD), skrip legacy membingungkan.
+8. Belum teruji produksi; dikembangkan sangat cepat oleh AI → kualitas tidak merata.
+
+### 4.2 Hermes Agent
+**Kelebihan**
+1. Closed learning loop terbukti di produksi + Honcho user modeling + `/learn`.
+2. 20+ platform, Bot Mode, voice real-time, parity slash command CLI↔messaging.
+3. 6 terminal backend + serverless hibernation (biaya idle ≈ 0).
+4. Nous Portal: satu OAuth untuk 300+ model + search + image + TTS + browser.
+5. Maturity: 50 rilis, security policy, supply-chain gate, importer migrasi, i18n.
+6. Riset-ready: Atropos RL, trajectory compression, DSPy+GEPA self-evolution.
+7. MIT + ekosistem plugin/skill komunitas besar.
+
+**Kelemahan**
+1. Footprint berat: Python 3.14 + Node + pnpm + FFmpeg + ripgrep; tidak se-ringan binary Dart.
+2. Kompleksitas sangat tinggi (71k commit, banyak subsistem) → kurva kontribusi curam.
+3. Tidak ada aplikasi mobile native (Android hanya via Termux CLI).
+4. Retrieval memori lebih sederhana (FTS5+LLM) dibanding hybrid RRF Tiko.
+5. Ketergantungan ekosistem (Portal, plugin catalog) bisa jadi titik lock-in lunak.
+
+---
+
+## 5. GUI, UI & UX
+
+### 5.1 Hermes Agent
+| Permukaan | Detail |
+|---|---|
+| **TUI (Ink/React terminal)** | Multiline editing, autocomplete slash-command, riwayat percakapan, interrupt-and-redirect, streaming output tool, `/model`, `/personality`, `/retry`, `/undo`, `/compress`, `/usage`, `/insights` |
+| **Desktop (Electron 44.x)** | Chat, Settings→Model→Subagents (pilih provider/model/limit per subagent), profil, dashboard, mode remote/mixed, kemasan DMG/MSIX rapi |
+| **Web dashboard** | Manajemen profil/provider/endpoint, peringatan, scroll behavior teruji |
+| **Voice** | Real-time di CLI, Telegram, Discord VC |
+| **UX onboarding** | Install 60 detik → `hermes setup --portal` (satu OAuth) → `hermes doctor`; parity perintah CLI↔platform pesan; i18n banyak locale |
+
+### 5.2 Tiko-Agent
+| Permukaan | Detail (terverifikasi kode) |
+|---|---|
+| **Web UI agentd** (`apps/agentd/web`, vanilla JS 640 brs) | 8 tab: Chat, Memori, Status, Approvals, Sessions, Skills, Tugas, Bantuan. WebSocket `/v1/stream`, konfirmasi tool inline (Izinkan/Tolak), feedback skill 👍/👎, log & event runtime. ARIA tab cukup baik. |
+| **Flutter app** (`apps/agent_flutter`, 27 file) | ChatPage, DashboardPage, ApprovalsPage, SessionsPage, MemoryPage, MorePage; note editor **tabs + split view + focus mode (FR-15)**, graph view, command palette, jank monitor, index dashboard, settings store. Build hijau di 4 platform. |
+| **TUI tiko** (`packages/tiko_tui`) | Line editor 429 brs, REPL chat, wizard kredensial, history store, session. |
+| **TUI Simpul** (`apps/simpul`) | REPL vault + commands, bridge ke core. |
+
+### 5.3 Penilaian UX (skor 1–10)
+| Dimensi | Hermes | Tiko | Catatan Tiko |
+|---|---|---|---|
+| Onboarding | 9 | 6 | Tiko butuh Dart SDK / compile manual; wizard ada tapi belum satu perintah |
+| Kecepatan interaksi | 9 | 7 | Web UI Tiko belum ada interrupt-and-redirect |
+| Parity antar permukaan | 9 | 4 | Slash command tidak seragam di web/Flutter/TUI |
+| Aksesibilitas | 8 | 6 | ARIA ada di web UI; Flutter belum diaudit a11y |
+| Visual & tema | 8 | 6 | Tiko belum ada skins/themes |
+| Keamanan UX | 8 | 5 | Token via `?token=` di URL (B-08) = friksi + risiko |
+| i18n | 8 | 3 | Tiko hanya Bahasa Indonesia |
+| Mobile | 5 | 7 | Flutter Tiko unggul (APK CI hijau) |
+
+### 5.4 Rekomendasi UX Tiko (prioritas)
+1. Satukan "command palette" lintas permukaan (web/Flutter/TUI) dengan daftar perintah yang sama (`/new`, `/model`, `/stop`, `/skills`, `/approve`).
+2. Tambahkan interrupt-and-redirect: pesan baru saat turn berjalan → cancel token + antrian prompt.
+3. Ganti login `?token=` dengan halaman pairing kode pendek (seperti DM pairing Hermes).
+4. Installer satu baris (`curl … | bash`) yang mengunduh binary rilis GitHub + `tiko doctor`.
+5. Tema & skins (Flutter ThemeData + CSS variables web UI).
+6. i18n: ekstrak string ke ARB (Flutter) + kamus JSON (web/TUI); mulai ID+EN.
+7. Streaming tool output di web UI (sudah ada WS, tinggal render progresif per tool).
+8. Audit a11y Flutter (Semantics) + kontras tema.
+9. Onboarding "portal-style": satu wizard menyimpan semua SecretRef env + uji koneksi.
+10. Pindahkan status/diagnostik ke satu halaman `doctor` yang bisa dibagikan (redacted).
+
+---
+
+## 6. DAFTAR BUG TIKO-AGENT
+
+Semua lokasi diverifikasi pada commit `9b9b822`. Severity: 🔴 kritis/tinggi · 🟡 menengah · 🟢 rendah.
+
+| ID | Severity | Lokasi | Ringkasan |
+|---|---|---|---|
+| B-01 | 🔴 | `agent_security/lib/src/secret_store.dart:51-72` | "Enkripsi" secret = XOR dengan keystream LCG (hash `*31`, LCG `*1103515245+12345`). Dapat diprediksi, tanpa MAC/KDF. Diekspor publik (`agent_security.dart:8`) meski tak dipakai internal. |
+| B-02 | 🔴 | `agent_security/lib/src/credential_manager.dart:353-367` | API key disimpan **plaintext JSON**, tanpa chmod 600, dan `_save()` menelan semua error (`catch (e) {}`). Diinstansiasi runtime (`tiko_runtime.dart:538`). |
+| B-03 | 🔴 | `agent_tools/lib/src/api_server.dart:581-588` | `_validateAuth` return `true` bila token kosong → semua route ber-auth jadi publik. Perbandingan token non-constant-time. |
+| B-04 | 🔴 | `agent_tools/lib/src/api_server.dart` (`_parseRequest`, field `maxRequestSize`/`corsOrigins`) | `maxRequestSize` & `corsOrigins` dideklarasikan tapi **tidak pernah ditegakkan**; body dibaca tanpa batas → DoS memori bila server diekspos. |
+| B-05 | 🟡 | `agent_tools/lib/src/api_server.dart:353-375` | `onStart` dipanggil **setelah** `await for` selesai → callback "start" justru jalan saat shutdown. |
+| B-06 | 🟡 | `agent_tools/lib/src/api_server.dart:346` | `HttpServer.bind(shared: true)` → proses lokal lain bisa berbagi port (socket hijacking di host multi-user). |
+| B-07 | 🔴 | `agent_tools/lib/src/web_search.dart:93,135-143` | Fetch halaman pakai `http.Client()` polos setelah `checkUrl` → TOCTOU/DNS-rebinding; redirect diikuti tanpa re-check per hop. Tidak konsisten dengan `web_fetch`/`http_request` yang memakai `pinnedHttpClient`. |
+| B-08 | 🟡 | `agent_gateway/lib/src/http_api.dart:103-108,132` | Token diterima via query `?token=` (bocor ke log/history); `Access-Control-Allow-Origin: *` tanpa validasi Host/Origin (permukaan DNS-rebinding); compare non-constant-time. |
+| B-09 | 🟡 | `agent_tools/lib/src/builtin.dart:635-643` | Workspace jail leksikal melewati argumen berawalan `-` → `--file=/etc/passwd` lolos cek; cek `..` kasar. Keamanan riil hanya dari sandbox+allowlist. |
+| B-10 | 🟢 | `agent_core/lib/src/agent_loop.dart:280-281,299-300` | Heuristik `resp.text.contains('[error]')` bisa salah menandai jawaban sah sebagai kegagalan provider → fallback tak perlu. |
+| B-11 | 🟢 | `agent_tools/lib/src/code_execution.dart:12-16`; `credential_manager.dart:370-372` | ID eksekusi pakai `Random()` non-CSPRNG; ID kredensial = timestamp + random lemah (mudah ditebak). |
+| B-12 | 🟢 | `scripts/__pycache__/*.pyc`, `tools/mock_mcp_server/__pycache__/*.pyc`, `data/agent.db` | Artefak ter-commit (DB kosong, hanya skema — tidak ada kebocoran data). `.gitignore` kurang entri. |
+| B-13 | 🟢 | `scripts/apply.sh`, `apply_ci_fix_bundle.sh`, `apply_continue.sh`, `apply_flutter_ui_repairs.py` (1.084 brs) | Skrip "repair bundle" legacy sudah usang (fix sudah merged) — membingungkan kontributor. |
+| B-14 | 🟡 | `agent_security/lib/src/prompt_guard.dart` | Guard injeksi murni regex (6 rule): bypass via parafrase/encoding/bahasa lain; PI-005 (base64 ≥120 char) rawan false positive. Layak sebagai lapisan, bukan andalan. |
+
+**Catatan kejujuran audit:** race `_flush()` pada `SkillMetricsLedger` **sudah diperbaiki** oleh tim Tiko (batch OPT-1, 13 Nov) — tidak dihitung sebagai bug terbuka. Tidak ditemukan secret hardcoded nyata (semua hit pola `sk-`/`ghp_` adalah fixture test) dan tidak ada indikasi backdoor/eksfiltrasi.
+
+---
+
+## 7. PERBAIKAN STEP-BY-STEP
+
+> Prasyarat umum: Dart SDK ≥3.8, clone repo, `dart pub get` di root workspace.
+> Setelah tiap perbaikan jalankan: `dart analyze --fatal-warnings` lalu `dart test <path-test>` lalu `bash scripts/validate.sh` sebelum commit.
+> Format commit disarankan: `fix(security): <ID> — <ringkasan>`.
+
+### B-01 — Ganti SecretStore XOR-LCG dengan kripto teraudit
+**Dampak:** secret yang "dienkripsi" modul ini praktis plaintext bagi penyerang yang membaca file.
+**Langkah:**
+1. Tambahkan dependensi di `packages/agent_security/pubspec.yaml`:
+   ```yaml
+   dependencies:
+     cryptography: ^2.7.0
+   ```
+2. Tandai kelas lama deprecated dan **hapus ekspornya** dari `agent_security.dart:8` (atau ganti ekspor ke implementasi baru).
+3. Implementasi pengganti (pola sama dengan `simpul_core/vault_crypto.dart` yang sudah teraudit):
+   ```dart
+   // secret_store_v2.dart
+   import 'dart:convert'; import 'dart:io'; import 'dart:typed_data';
+   import 'package:cryptography/cryptography.dart';
+
+   class SecretStoreV2 {
+     SecretStoreV2({required this.path, required this.passphrase});
+     final String path; final String passphrase;
+     static final _algo = XChaCha20.poly1305Aead();
+
+     Future<SecretKey> _derive(List<int> salt) async {
+       final kdf = Argon2id(memory: 19456, iterations: 2, parallelism: 1, hashLength: 32);
+       return kdf.deriveKey(secretKey: SecretKey(utf8.encode(passphrase)), nonce: salt);
+     }
+
+     Future<void> write(Map<String, String> data) async {
+       final salt = SecretKey(List.generate(16, (_) => _rng.nextInt(256))).extractBytes();
+       final key = await _derive(salt);
+       final box = await _algo.encrypt(utf8.encode(jsonEncode(data)), secretKey: key);
+       final out = Uint8List.fromList([...salt, ...box.nonce, ...box.cipherText, ...box.mac.bytes]);
+       final f = File(path);
+       await f.parent.create(recursive: true);
+       await f.writeAsBytes(out, flush: true);
+       if (!Platform.isWindows) await Process.run('chmod', ['600', path]);
+     }
+
+     Future<Map<String, String>> read() async {
+       final raw = await File(path).readAsBytes();
+       final salt = raw.sublist(0, 16);
+       final key = await _derive(salt);
+       final nonce = raw.sublist(16, 16 + _algo.nonceLength);
+       final mac = Mac(raw.sublist(raw.length - 16));
+       final cipher = raw.sublist(16 + _algo.nonceLength, raw.length - 16);
+       final plain = await _algo.decrypt(SecretBox(cipher, nonce: nonce, mac: mac), secretKey: key);
+       return Map<String, String>.from(jsonDecode(utf8.decode(plain)) as Map);
+     }
+     static final _rng = Random.secure();
+   }
+   ```
+   *(Tambahkan `import 'dart:math';` untuk `Random`.)*
+4. Migrasi: sediakan `migrateLegacy()` yang membaca format lama (XOR) **sekali**, menulis ulang via V2, lalu menghapus file lama.
+5. Test baru `secret_store_v2_test.dart`: roundtrip, MAC tamper → throw, salt unik per write, file permission 600 (POSIX).
+6. Verifikasi: `dart test packages/agent_security/test/secret_store_v2_test.dart`.
+**Rollback:** simpan kelas lama di branch terpisah; jangan pernah menulis secret baru ke format lama.
+
+### B-02 — CredentialManager: enkripsi at-rest + chmod + error jujur
+**Langkah:**
+1. Ubah `_save()` (baris 353-367) menjadi tulis atomik + permission ketat + gagal keras:
+   ```dart
+   Future<void> _save() async {
+     final data = {for (final e in _credentials.entries)
+       e.key: e.value.map((c) => c.toJson()).toList()};
+     final file = File(storagePath);
+     await file.parent.create(recursive: true);
+     final tmp = File('$storagePath.tmp');
+     await tmp.writeAsString(jsonEncode(data), flush: true);
+     if (!Platform.isWindows) {
+       final r = await Process.run('chmod', ['600', tmp.path]);
+       if (r.exitCode != 0) throw StateError('chmod gagal: ${r.stderr}');
+     }
+     await tmp.rename(storagePath); // atomik di POSIX
+   }
+   ```
+2. Panggil `_save()` dari `addCredential/removeCredential` dengan `rethrow` agar pemanggil tahu kegagalan (jangan diam).
+3. Opsional tapi disarankan: bungkus payload dengan `SecretStoreV2` (B-01) bila passphrase tersedia dari env `TIKO_SECRET_PASSPHRASE`.
+4. Tambahkan `initialize()` validasi: bila file ada tapi permission >600 di POSIX → perketat + log peringatan.
+5. Test: tulis→baca roundtrip; simulasi disk penuh (path invalid) → exception sampai ke pemanggil; cek mode file 600.
+6. Verifikasi: `dart test packages/agent_security/test/credential_manager_test.dart` (buat bila belum ada).
+
+### B-03 — ApiServer: auth fail-closed + constant-time
+**Langkah:**
+1. Di konstruktor `ApiServerConfig`/`ApiServer`, wajibkan token:
+   ```dart
+   ApiServer({required ApiServerConfig config, ...})
+     : config = (config.authToken == null || config.authToken!.isEmpty)
+         ? config.copyWith(authToken: _genToken()) // Random.secure 32 byte hex
+         : config;
+   ```
+   dan expose `config.authToken` ke pemanggil (log sekali ke stdout daemon, jangan ke file log).
+2. Ganti `_validateAuth` (581-588):
+   ```dart
+   bool _validateAuth(ApiRequest req) {
+     final expected = config.authToken!;
+     final got = req.authToken ?? '';
+     if (got.length != expected.length) return false;
+     var diff = 0;
+     for (var i = 0; i < expected.length; i++) {
+       diff |= got.codeUnitAt(i) ^ expected.codeUnitAt(i);
+     }
+     return diff == 0;
+   }
+   ```
+3. Test: tanpa token header → 401; token salah panjang → 401; token benar → 200; konstruksi tanpa token → token otomatis terpasang.
+4. Verifikasi: `dart test packages/agent_tools/test/api_server_test.dart`.
+
+### B-04 — ApiServer: tegakkan maxRequestSize & corsOrigins
+**Langkah:**
+1. Di `_parseRequest`, baca body dengan batas:
+   ```dart
+   final builder = BytesBuilder();
+   await for (final chunk in request) {
+     builder.add(chunk);
+     if (builder.length > config.maxRequestSize) {
+       request.response.statusCode = HttpStatus.requestEntityTooLarge;
+       await request.response.close();
+       throw const HttpException('request too large');
+     }
+   }
+   ```
+2. Di awal `_handleRequest`, set CORS hanya untuk origin terdaftar:
+   ```dart
+   final origin = request.headers.value('origin');
+   if (origin != null && config.corsOrigins.contains(origin)) {
+     request.response.headers.set('Access-Control-Allow-Origin', origin);
+     request.response.headers.set('Vary', 'Origin');
+   }
+   ```
+3. Test: body > limit → 413; origin asing → tanpa header ACAO; origin terdaftar → ACAO tepat.
+4. Verifikasi:同上 (test api_server).
+
+### B-05 — ApiServer: onStart sebelum accept-loop
+**Langkah:**
+1. Pindahkan blok `if (onStart != null) await onStart!(this);` dari baris 372-375 ke **sebelum** `await for` (setelah `_status = running`, baris 350).
+2. Agar `start()` tidak memblokir pemanggil, jalankan loop via `_server!.listen(_handleRequest)` dan simpan `StreamSubscription`; `stop()` membatalkan subscription lalu `close()`.
+3. Test: `onStart` terpanggil sebelum request pertama dilayani; `stop()` memicu `onStop` tepat sekali.
+
+### B-06 — ApiServer: shared:false
+**Langkah:**
+1. Baris 346: ganti `shared: true` → `shared: false` (atau jadikan parameter `allowPortSharing` default false).
+2. Test: dua `ApiServer` pada port sama → yang kedua gagal bind (bukan berbagi).
+
+### B-07 — web_search: samakan dengan web_fetch (pinned + redirect manual)
+**Dampak:** jalur pencarian bisa diarahkan ke alamat internal via DNS rebinding/redirect meski `checkUrl` lolos.
+**Langkah:**
+1. Baris 93: ganti pembuatan client:
+   ```dart
+   final client = _client ?? IOClient(_ssrf.pinnedHttpClient());
+   ```
+   *(import `package:http/io_client.dart`; pola sudah dipakai `web_fetch` di `builtin.dart:730`.)*
+2. Matikan auto-redirect dan loop manual dengan re-check tiap hop (maks 3):
+   ```dart
+   var current = Uri.parse(url);
+   http.Response? page;
+   for (var hop = 0; hop <= 3; hop++) {
+     final block = await _ssrf.checkUrl(current.toString());
+     if (block != null) { pageBlocks.add('[SSRF blocked: $block]'); break; }
+     final req = http.Request('GET', current)
+       ..followRedirects = false
+       ..headers['User-Agent'] = 'agent_dart/0.1';
+     final streamed = await client.send(req).timeout(const Duration(seconds: 12));
+     page = await http.Response.fromStream(streamed);
+     if (page.statusCode >= 300 && page.statusCode < 400 &&
+         page.headers['location'] != null) {
+       current = current.resolve(page.headers['location']!);
+       continue;
+     }
+     break;
+   }
+   ```
+3. Test dengan stub server loopback: redirect ke `http://127.0.0.1/` harus diblok; redirect publik normal diikuti; DNS pinning dipakai (uji dengan `SsrfGuard` stub yang mencatat pemanggilan).
+4. Verifikasi: `dart test packages/agent_tools/test/web_search_tavily_test.dart` + test baru.
+
+### B-08 — http_api: hapus token query, validasi Origin/Host, constant-time
+**Langkah:**
+1. `_auth` (103-108): hapus cabang query param; gunakan perbandingan constant-time seperti B-03. Untuk WebSocket `/v1/stream` yang butuh token di browser, terapkan **ticket pendek**: `POST /v1/auth/ticket` (Bearer) → token sekali pakai TTL 30 dtk → `?ticket=` (bukan token utama).
+2. Tambahkan validasi Host di awal `_handle`:
+   ```dart
+   final host = req.headers.value('host') ?? '';
+   final okHost = host.startsWith('127.0.0.1:') || host.startsWith('localhost:')
+       || host == bindHost; // sesuai konfigurasi bind
+   if (!okHost) { req.response.statusCode = 421; await req.response.close(); return; }
+   ```
+3. Ganti `ACAO: *` (baris 132) dengan allowlist origin (default: origin UI yang disajikan daemon sendiri).
+4. Test: `?token=` ditolak; Host asing → 421; origin asing tanpa ACAO; ticket sekali pakai tidak bisa di-replay.
+5. Verifikasi: `dart test packages/agent_gateway/test/` + smoke `bash scripts/smoke_agentd.sh` (perbarui skrip agar memakai Bearer, bukan query token).
+
+### B-09 — ShellTool jail: jangan skip flag, pakai PathSafety
+**Langkah:**
+1. Ganti loop leksikal (635-643) dengan pemeriksaan nilai flag + resolusi kanonik:
+   ```dart
+   for (final part in parts.skip(1)) {
+     final value = part.startsWith('-') && part.contains('=')
+         ? part.split('=').sublist(1).join('=')
+         : part.startsWith('-') ? null : part;
+     if (value == null) continue; // flag boolean tanpa nilai
+     final resolved = PathSafety.resolveWithin(root, value); // API yang sudah ada
+     if (resolved == null) {
+       return const ToolResult(callId: '', content: 'Path di luar workspace', isError: true);
+     }
+   }
+   ```
+   *(Sesuaikan nama dengan helper PathSafety yang tersedia; intinya: resolusi kanonik, bukan string `..`.)*
+2. Pertahankan sandbox sebagai lapisan utama; jail ini hanya defense-in-depth.
+3. Test: `cat --file=/etc/passwd` ditolak; `ls subdir/` lolos; symlink keluar workspace ditolak.
+4. Verifikasi: `dart test packages/agent_tools/test/shell_jail_test.dart`.
+
+### B-10 — agent_loop: andalkan finishReason, bukan substring
+**Langkah:**
+1. Baris 280-281 & 299-300: ganti kondisi menjadi `resp.finishReason == 'error'` saja.
+2. Pastikan semua adapter provider menyetel `finishReason='error'` saat gagal (audit `openai_compat.dart`, `anthropic_compat.dart`, `gemini_compat.dart`, `ollama_native.dart`, `mock_provider.dart`).
+3. Untuk kompatibilitas mock lama, boleh pertahankan heuristik hanya bila `providerId == 'mock'`.
+4. Test: jawaban sah berisi teks "[error]" tanpa toolCalls **tidak** memicu fallback; error adapter tetap memicu fallback.
+
+### B-11 — ID dengan CSPRNG
+**Langkah:**
+1. `code_execution.dart:14`: `final random = Random.secure();`.
+2. `credential_manager.dart:370-372`: ganti ID menjadi 16 byte hex dari `Random.secure()` (pola `_randomToken()` di `agentd.dart` sudah benar — tiru).
+3. Test: dua ID berurutan berbeda; format sesuai.
+
+### B-12 — Higiene repo
+**Langkah:**
+1. `git rm -r --cached scripts/__pycache__ tools/mock_mcp_server/__pycache__ data/agent.db`
+2. Tambahkan ke `.gitignore`:
+   ```gitignore
+   __pycache__/
+   *.pyc
+   data/*.db
+   data/*.db-journal
+   ```
+3. (Opsional) karena DB kosong, tidak perlu scrub riwayat; bila ingin bersih total: `git filter-repo --path data/agent.db --invert-paths`.
+4. Tambahkan langkah CI `repo-guards`: gagal bila ada `*.pyc`/`*.db` terlacak (`git ls-files | grep -E '\.(pyc|db)$' && exit 1`).
+5. Verifikasi: `bash scripts/validate.sh` tetap hijau.
+
+### B-13 — Arsipkan skrip legacy
+**Langkah:**
+1. `mkdir -p archive/repair-bundle-2026-11 && git mv scripts/apply.sh scripts/apply_ci_fix_bundle.sh scripts/apply_continue.sh scripts/apply_flutter_ui_repairs.py archive/repair-bundle-2026-11/`
+2. Tambahkan `archive/README.md`: "Artefak alur repair-bundle lama; sudah merged ke main; jangan dijalankan."
+3. Perbarui `docs/00-INDEX.md` dan hapus referensi dari dokumen status.
+4. Verifikasi: `bash -n` semua skrip aktif; CI hijau.
+
+### B-14 — Perkuat PromptGuard (defense-in-depth)
+**Langkah:**
+1. Normalisasi input sebelum scan: lowercase, lipat whitespace, decode base64 yang terdeteksi (lalu scan hasilnya), strip zero-width char.
+2. Tambah rule keluarga: instruksi berbahasa Indonesia ("abaikan instruksi sebelumnya"), delimiter chat-template lain, dan pola "system:" di awal baris.
+3. Jadikan PI-005 (base64 panjang) severity `low` + sanitize, bukan medium, untuk menekan false positive; blokir hanya bila hasil decode cocok rule lain.
+4. Perluas korpus `indonesianInjectionEval40` → 100+ kasus (termasuk adversarial-benign) dan jadikan gate CI: akurasi block ≥95%, false-positive ≤5%.
+5. Dokumentasikan secara eksplisit: guard heuristik **bukan** satu-satunya lapisan; permission gate + taint tetap wajib.
+
+---
+
+## 8. ROADMAP & KRITERIA PENERIMAAN
+
+| Fase | Durasi | Isi | Kriteria selesai |
+|---|---|---|---|
+| **F1 — Hotfix keamanan** | 1–2 hari | B-01, B-02, B-03, B-04, B-07, B-08 | Semua test baru lulus; `validate.sh` hijau; tidak ada jalur fetch tanpa pinning; tidak ada secret plaintext baru |
+| **F2 — Hardening** | 3–5 hari | B-05, B-06, B-09, B-10, B-11, B-14 | ApiServer fail-closed; jail kanonik; korpus injeksi ≥100 kasus jadi gate CI |
+| **F3 — Higiene & proses** | 1 hari | B-12, B-13 + repo-guards CI | Tidak ada artefak terlacak; skrip legacy terarsip |
+| **F4 — Paritas Hermes (produk)** | 2–4 minggu | `/learn`, memory nudge, user modeling (Honcho penuh), plugin isolation, Vercel backend, Bot Mode, parity slash-command, i18n ID/EN, installer satu baris | Fitur diuji end-to-end; dokumentasi pengguna diperbarui |
+
+**Kriteria penerimaan global:**
+- `dart analyze --fatal-warnings` = 0 issue di seluruh workspace.
+- `dart test` = 100% lulus (target tambah ±60 test dari perbaikan ini).
+- CI 7 check tetap hijau + job repo-guards baru.
+- Audit ulang: tidak ada secret at-rest tanpa enkripsi/MAC; semua jalur HTTP keluar memakai SSRF pinning; semua server lokal wajib auth.
+
+---
+
+## 9. KESIMPULAN
+
+1. **Arsitektur:** Tiko setara atau lebih rapi di beberapa subsistem (budget guard, fail-closed sandbox, hybrid RAG, DAG orchestration, vault terenkripsi). Hermes menang mutlak di maturity, ekosistem, dan closed learning loop.
+2. **Fitur:** Tiko ±75–80% paritas fungsional (klaim internalnya konsisten dengan audit ini), dengan gap terbesar di jumlah platform gateway, Bot Mode, `/learn`, nudge memori, user modeling, dan RL/self-evolution.
+3. **Algoritma:** Tiko unggul di retrieval & kontrol deterministik; Hermes unggul di pembelajaran berkelanjutan dan operasional produksi.
+4. **GUI/UX:** Hermes lebih matang dan parity antar permukaan; Tiko punya keunggulan mobile native (Flutter) dan web UI ringan, tapi perlu penyatuan command palette, interrupt-redirect, pairing aman, dan i18n.
+5. **Bug:** 14 temuan terverifikasi (4 kritis/tinggi keamanan). Semuanya dapat diperbaiki dalam ±1 minggu dengan panduan §7; tidak ada backdoor atau kebocoran secret aktif.
+6. **Rekomendasi strategis:** kerjakan F1–F3 sebelum menambahkan fitur baru; setelah itu kejar gap learning-loop (F4) karena itulah pembeda utama Hermes.
+
+---
+
+## 10. REFERENSI
+
+- Tiko-Agent: https://github.com/kiosmarmer-commits/Tiko-Agent (commit `9b9b822`)
+- Hermes Agent: https://github.com/nousresearch/hermes-agent (v0.23.1, commit `18ea421`)
+- Dokumentasi resmi Hermes: https://hermes-agent.nousresearch.com/docs/
+- Hermes Self-Evolution (DSPy+GEPA): https://github.com/NousResearch/hermes-agent-self-evolution
+- Fitur `/learn`: https://www.marktechpost.com/2026/06/24/nous-research-adds-learn-to-hermes-agents-skills-system-capturing-workflows-as-slash-commands-without-hand-writing-skill-md/
+- Dokumen internal Tiko (diperlakukan sebagai klaim): `HERMES-TIKO-COMPARISON-2026-11-10.md`, `docs/HERMES-PARITY-GAPS-2026-11-10.md`, `docs/HERMES-PARITY-BATCH-2026-11-13.md`, `AUDIT-AND-FIX-REPORT.md`
+- RFC 8439 (ChaCha20-Poly1305) & draft-irtf-cfrg-xchacha — basis test vector kripto Discord voice Tiko
+
+*Dokumen ini dihasilkan dari audit kode sumber langsung; seluruh nomor baris bug diverifikasi pada snapshot yang disebut di metadata.*

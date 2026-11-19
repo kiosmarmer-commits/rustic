@@ -1,0 +1,181 @@
+
+
+
+
+Alat dan Integrasi Hermes Agent AI (Nous Research)
+Dokumentasi resmi Hermes Agent (Nous Research) menjelaskan banyak provider/penyedia yang didukung, dikelompokkan per kategori. Berikut ringkasan komprehensif (per 19 Nov 2026), dengan keterangan dukungan resmi (built-in), plugin/oposional, dan contoh lain yang kompatibel. Setiap entri menyertakan cara konfigurasi (variabel lingk. atau hermes auth) dan referensi primer. Kami mengacu pada Hermes Agent oleh Nous Research (bukan proyek lain) sesuai asumsi soal.
+
+Pencarian Web (Web Search Providers)
+Hermes menyediakan alat web_search/web_extract dengan banyak backend bawaan. Provider resmi:
+
+Firecrawl (default): Mesin pencari berbayar/berlangganan yang mendukung web_search & web_extract. Dapat diaktifkan dengan FIRECRAWL_API_KEY (opsional). Jika tak ada kredensial, Hermes otomatis memasuki mode tanpa kunci (ring bebas) bersama Exa/Parallel/Keenable.
+SearXNG: Mesin pencari self-host gratis. Konfigurasi via SEARXNG_URL=… pointing ke instance Anda. (Khusus pencarian, tanpa ekstraksi halaman.)
+Brave Search (Free Tier): Pencarian Brave gratis (2.000 kueri/bulan). Gunakan BRAVE_SEARCH_API_KEY (optional) untuk kunci Brave; tanpa kunci, Brave digunakan secara gratis. (Hanya pencarian, tidak ekstraksi.)
+DDGS (DuckDuckGo): Gratis, tanpa API key. Hermes menggunakan ddgs Python package secara transparan. (Hanya pencarian.)
+Exa Search: Pencarian komersial. Konfigurasi EXA_API_KEY (opsional). Tanpa kunci, Hermes bisa ikut ring bebas (keyless). Mendukung web_extract juga (ekstraksi konten).
+Parallel Search: Pencarian komersial. Atur PARALLEL_API_KEY (opsional). Mirip Exa: tanpa kunci ikut ring gratis, dengan kunci bisa penuh. Dapat web_extract.
+Tavily Search: Pencarian komersial. TAVILY_API_KEY (opsional). Mendukung pencarian & ekstraksi. Tanpa kunci bergabung (opt-in) gratis saat dipilih.
+Perplexity Search: Mesin pencari berbayar (ekstraksi snippet). Perlukan PERPLEXITY_API_KEY. Menyediakan snippet relevan hasil pencarian.
+Keenable Search: Pencarian komersial. KEENABLE_API_KEY (opsional). Tanpa kunci ring gratis; dengan kunci, akses penuh. Mendukung ekstraksi.
+xAI (Grok) Search: Layanan pencarian LLM (Groks). Memerlukan XAI_API_KEY atau OAuth (hermes auth add xai-oauth). Hanya pencarian (tidak ekstraksi). Hasilnya diciptakan model, bukan index tradisional.
+OpenAI Codex Search: Pencarian via OpenAI (ChatGPT/Codex API). Aktifkan dengan hermes auth add openai-codex (memerlukan langganan Codex/ChatGPT). (Hanya pencarian.)
+Selain itu, pengguna Nous Portal Tool Gateway (berlangganan Nous Research) mendapatkan pencarian/ekstraksi awan secara managed (OAuth otomatis) tanpa perlu kunci. Integrasi komunitas misalnya plugin baru pengindeks pihak ketiga bisa dibuat, tapi di atas adalah penyedia resmi.
+
+Model AI / LLM Providers
+Hermes Agent mendukung lusinan penyedia model (LLM), baik cloud maupun self-hosted. Contoh utama (dukungan resmi):
+
+Nous Portal (OpenRouter) – platform langganan Nous dengan >300 model (Claude, GPT, Gemini, dll) dan tool gateway. Konfigurasi lewat hermes setup --portal (OAuth).
+OpenAI (GPT/Codex) – API standar. Atur OPENAI_API_KEY di ~/.hermes/.env. (hermes model memilih provider “OpenAI API”).
+Anthropic (Claude) – Melalui OAuth (Claude Max plan + kredit) atau ANTHROPIC_API_KEY (native API). Bisa dipilih via hermes model.
+Google Gemini / Vertex AI – Gemini via GOOGLE_API_KEY/GEMINI_API_KEY. Google Vertex AI menggunakan Service Account (via hermes model pilihan Vertex).
+AWS Bedrock – Gunakan AWS cred (boto3) melalui pilihan provider bedrock. Mendukung model Claude, Amazon Titan, Meta Llama, dll.
+Azure AI / Foundry – Azure OpenAI. Pilih “Azure AI Foundry” (hermes model) atau set di config Azure endpoint/key.
+Hugging Face – 20+ model inference via unified API. Gunakan HF_TOKEN (Hugging Face access token) dengan provider huggingface.
+Ollama – LLM local/cloud. “Ollama Cloud” provider via hermes model (API) atau custom Ollama endpoint.
+Mistral – Pilihan model Mistral (termasuk TTS dan STT). Konfigurasi via MISTRAL_API_KEY (untuk layanan awan Mistral).
+Xiaomi MiMo (Xiaomi) – AI Xiaomi. XIAOMI_API_KEY for provider xiaomi.
+Kimi (Moonshot) – Layanan dari Moonshot/Lang.AI. KIMI_API_KEY dan KIMI_CN_API_KEY (China).
+MiniMax – Layanan AI global/China. MINIMAX_API_KEY, MINIMAX_CN_API_KEY (untuk Chn) atau via OAuth “MiniMax OAuth” (browser flow).
+AI Gateway, Fireworks AI, NovitaAI, z.ai, ArceeAI, GMI, Nebius, Kilo Code, TokenHub/TokenPlan (Tencent), Alibaba DashScope/Coding/TokenPlan – berbagai LLM atau tooling enterprise. Kunci spesifik (*_API_KEY) seperti pada tabel.
+OpenCode Zen/Go, CommandCode – LLM oleh OpenCode/CommandCode (Claude via Anthropic). OPENCODE_ZEN_API_KEY, OPENCODE_GO_API_KEY, COMMANDCODE_API_KEY.
+DeepSeek, Actual Computer, Ramp Router, OpenRouter, LangChain AI Gateway, dll. – provider LLM lebih kecil/eksperimental (kunci tersendiri).
+Plugin dan Self-hosted – Hermes juga mendukung endpoint kustom. Misal, Custom Endpoint di config untuk LLM internal; plugin LLM (via ctx.register_model_provider) untuk implementasi khusus. Hugging Face hub dapat disetel sebagai self-host model (aliasing provider huggingface). Selain itu, pengguna bisa menjalankan model lokal (vLLM, FastChat, etc) dengan memasang node Python plugin atau command line.
+Setiap provider memiliki cara konfigurasi tersendiri (env var di ~/.hermes/.env atau OAuth lewat hermes auth/hermes model). Misalnya OPENAI_API_KEY, ANTHROPIC_API_KEY, HF_TOKEN, GOOGLE_API_KEY, dll. Daftar lengkap ada di dokumentasi resmi.
+
+TTS dan STT (Suara)
+Hermes mendukung beberapa penyedia Text-to-Speech (TTS) dan Speech-to-Text (STT):
+
+TTS (Text-to-Speech) – 11 provider bawaan:
+
+Edge TTS (Azure Microsoft, default, kualitas baik): gratis, tanpa kunci.
+ElevenLabs (kualitas tinggi): berbayar, set ELEVENLABS_API_KEY.
+OpenAI TTS (berbasis model OpenAI): berbayar, VOICE_TOOLS_OPENAI_KEY.
+MiniMax TTS: berbayar, MINIMAX_API_KEY (global) atau MINIMAX_CN_API_KEY (China).
+Mistral Voxtral TTS: berbayar, MISTRAL_API_KEY.
+Google Gemini TTS: gratis terbatas, GEMINI_API_KEY.
+xAI (Grok) TTS: berbayar, XAI_API_KEY.
+DeepInfra TTS: berbayar, DEEPINFRA_API_KEY.
+NeuTTS, KittenTTS, Piper: open-source local (gratis), tanpa kunci.
+Pengguna memilih provider dengan tts.provider di config atau CLI. Beberapa (Edge, MiniMax) output MP3, lainnya Opus/PCM.
+STT (Speech-to-Text) – Penyedia resmi terintegrasi:
+
+Groq Whisper (penyedia GPU cloud Whisper): dibangun tanpa kunci (Groq mungkin gratis/premium).
+OpenAI Whisper (OpenAI): memanfaatkan OPENAI_API_KEY.
+Mistral Voxtral ASR: MISTRAL_API_KEY.
+xAI Grok ASR: XAI_API_KEY.
+ElevenLabs ASR: ELEVENLABS_API_KEY.
+DeepInfra ASR: DEEPINFRA_API_KEY.
+local (Whisper lokal) dan local_command: fallback menjalankan perintah lokal (misal whisper CLI) jika diatur.
+Konfigurasi STT via stt.provider di config.yaml; Hermes auto-deteksi provider berdasarkan ketersediaan kunci. Misalnya XAI, OpenAI, Mistral akan dipilih jika kunci ada; jika tidak, akan beralih ke provider lain. Hermes juga mendukung HERMES_LOCAL_STT_COMMAND untuk panggil alat STT eksternal.
+Otomasi Browser (Browser Automation)
+Hermes memiliki alat browser untuk mengontrol web (mirip Playwright). Built-in:
+
+browser_exec (berbasis CDP ke Chromium lokal): otomatis menggunakan Chromium bawaan (FFmpeg, dll terinstal via PM). Konfigurasi path/browser di browser.executable_path dan opsi lain di config.yaml.
+browser_cdp, browser_dialog, browser_vault: API lain untuk interaksi browser.
+Opsi Cloud: Nous Portal menyediakan Cloud Browser melalui Tool Gateway (abstrak, OAuth). Selain itu, dua penyedia awan terintegrasi: BrowserUse (BROWSER_USE_API_KEY) dan Browserbase (BROWSERBASE_API_KEY + project ID). Juga ada Firecrawl (browser server). Pilihan di config browser.cloud_provider dapat di-set ke browserbase/browser-use/firecrawl/nous dll. Lightpanda (browser teks ringan) disebut dalam dokumentasi.
+Plugin Komunitas: camofox – plugin browser alternatif (pasang via hermes plugins install camofox).
+Secara ringkas, Hermes bisa membuka browser lokal maupun cloud sesuai konfigurasi (browser.executable_path, token API, dll). Pengguna bebas memilih penyedia browser dalam config (ini tidak otomatis, perlu kunci/API yang sesuai).
+
+Platform Pesan/Chat (Messaging/Chat Channels)
+Hermes Gateway mendukung 20+ platform pesan bawaan. Beberapa di antaranya:
+
+Messenger populer: Telegram (Bot API token), Discord (bot token), Slack (App tokens), WhatsApp (Cloud API atau Twilio), Signal.
+Lainnya: SMS, Email (SMTP), Home Assistant, Matrix, Mattermost, DingTalk, Feishu/Lark, WeCom (WeChat Work), Weixin (WeChat), QQ Bot, Yuanbao, Microsoft Teams, LINE, ntfy, dan CLI. Contoh: Telegram memerlukan TELEGRAM_TOKEN; Slack memerlukan Slack App diinstall; WhatsApp memerlukan WHATSAPP_BUSINESS_TOKEN atau TWILIO_WHATSAPP_ACCOUNT tergantung mode. Dokumentasi menguraikan tiap integrasi.
+Hermes Relay (eksperimental) berperan sebagai mediator untuk platform non-resmi.
+Sebagai catatan, CLI (perintah hermes chat) sendiri adalah “platform” bawaan Hermes. Juga, dapat menghubungkan ke HSM (Hermes desktop) sebagai gateway. Platform lain mungkin ditambahkan lewat plugin (misal hermes-nismodules untuk layanan baru), tapi di atas adalah yang resmi didukung.
+
+Pembuatan Gambar/Video (Image/Video Generation)
+Hermes menyediakan alat generatif untuk gambar dan video:
+
+Image Generation: Beberapa provider bawaan, antara lain:
+
+FAL.ai (FAL_KEY): default, skema langganan dan gratis terbatas.
+OpenAI DALL·E (OPENAI_API_KEY): via hermes auth add openai atau API.
+xAI (Grok) Image (XAI_API_KEY): layanan Grok.
+Krea (KREA_API_KEY): provider LLM khusus gambar.
+DeepInfra (DEEPINFRA_API_KEY).
+OpenRouter (jika Langganan portal digunakan).
+Meta Model API (via kredensial Meta).
+Pengguna memilih image_gen.provider. Selain itu, plugin pihak ketiga dapat menambah seperti Stable Diffusion via ComfyUI.
+Video Generation: Provider bawaan:
+
+xAI (Grok) Video, FAL Video, OpenRouter Video, DeepInfra Video.
+Masing-masing memerlukan kunci/API serupa (mis. XAI_API_KEY, FAL_KEY, OPENROUTER_API_KEY, DEEPINFRA_API_KEY).
+Beberapa provider berbayar, beberapa gratis ring terbatas. Konfigurasi seperti IMAGE_TOOLS_OPENAI_KEY, XAI_API_KEY, dll. dapat digunakan di .env. Video gen relatif baru, jumlah provider lebih sedikit.
+
+Memori / Basis Data Vektor (Memory/Vector DB)
+Hermes Agent memiliki sistem memori bawaan (menyimpan note ke SQLite) plus opsi penyimpanan eksternal. Dua memory provider resmi yang disertakan:
+
+RetainDB: Basis data memori eksternal berbayar (cloud). Dibayar per jam/vektor. Kunci RETAINDB_API_KEY. Mendukung pencarian vektor + BM25.
+ByteRover: CLI dan layanan memori (open-source + cloud). Instal brv. Tidak memerlukan kunci (cloud gratis terbatas).
+Kedua provider ini (“built-in external”) perlu diaktifkan di memory.provider. Memori internal SQLite (MEMORY.md, USER.md) selalu aktif tanpa konfigurasi.
+
+Plugin & Komunitas: Tersedia berbagai plugin memory (di katalog): Honcho, Hindsight, SuperMemory, Holographic, Memex8, Nexus, Memobase, dll. Misalnya Honcho menyediakan retriever lokal. Pengguna dapat instal via hermes plugins install honcho-memory dan set di config.
+
+Secara default, jika tidak terpasang provider eksternal, Hermes menggunakan memori lokal (SQLite). Untuk vector DB full-power, pakai RetainDB/ByteRover atau plugin.
+
+Eksekusi Kode / Sandbox (Code Execution)
+Hermes memiliki beberapa backend eksekusi perintah (terminal/shell) bawaan:
+
+Local: Jalankan kode di sistem lokal (bash/Python dll).
+Docker: Jalankan container (tentukan image). Tidak perlu variabel kunci, namun Docker harus terpasang.
+SSH: Eksekusi di mesin remote via SSH. Konfigurasi TERMINAL_SSH_HOST, TERMINAL_SSH_USER, kunci SSH di TERMINAL_SSH_KEY/TERMINAL_SSH_KEY_PATH.
+Modal: Layanan cloud GPU/CPU (modal.com). Butuh akun Modal; konfig dengan modal.Image(...) di terminal.
+Daytona: Platform cloud sandbox Nous (mirip SSH). Pilihan di terminal.backend: daytona (lembar fitur menyebutnya workspace cloud).
+Vercel Sandbox: MicroVM on-demand (butuh VERCEL_TOKEN & project di Vercel).
+Plugin komunitas tambahan:
+
+Singularity/Apptainer (hermes plugins install singulatiry): backend container alternatif.
+Sprites (Fly.io) (hermes plugins install sprites): cloud sandbox via Fly.io.
+Konfigurasi terminal.backend di config.yaml memilih salah satu. Masing-masing memiliki opsi (contoh Docker: container_cpu, SSH: termenv.*, Vercel: vercel.*). Jika backend gagal, Hermes laporkan dan pengguna dapat berganti.
+
+Alat File/Dokumen (File/Document Tools)
+Hermes menyediakan alat untuk membaca, menulis, dan mengekstrak konten dari file/dokumen:
+
+read_file: Mengonversi dokumen ke teks (Markdown). Bawaan mendukung .ipynb, .docx, .xlsx, .db (SQLite) tanpa tambahan. Untuk PDF, dokumen Office lawas, OpenDocument, EPUB, RTF, dll, perlu paket firecrawl-anydoc (diinstal otomatis).
+patch: Mengedit file teks/Markdown.
+vision_analyze: Analisis gambar/dokumen ter-scan (OCR).
+file_browser (plugin): Antarmuka penjelajah file (via plugin komunitas, misal nhrantzky/hermes-filebrowser-plugin).
+Tanpa anydoc, format PDF/dll akan terdeteksi sebagai konten biner (di-skip). .env dapat berisi security.allow_lazy_installs = true agar anydoc terpasang otomatis. Tidak ada API eksternal khusus; jika diperlukan OCR lebih lanjut, bisa diotomasi via skill (lihat petunjuk di dokumen).
+
+Integrasi MCP (Model Context Protocol)
+Hermes mendukung MCP (Model Context Protocol) untuk terhubung ke server alat eksternal. Nous Research menyediakan katalog MCP servers resmi (dimatikan default) dengan one-click install melalui hermes mcp. Contoh entri katalog:
+
+deepwiki – tanya data publik GitHub (instal via hermes mcp install deepwiki).
+linear – manajemen issue/project Linear (OAuth).
+github – operasi repo & PR GitHub (OAuth token).
+Dan lain-lain (merujuk gambar tabel input MCP). Setiap server MCP memerlukan konfigurasi di config.yaml: mcp_servers:<nama>: (command, args) atau panduan interaktif. Selain entri resmi, pengguna bisa menambahkan server MCP custom (file system, database, API).
+Penyedia pihak ketiga (mis. N8N) dulu ada, sekarang memakai server resmi mereka. Setelah terpasang dan diautentikasi (API key atau OAuth), alat yang tersedia dari server MCP menjadi tool Hermes. Konfigurasi detail (API key vs OAuth) tercantum di docs (mis. baris [58†L174-L181]).
+
+Observabilitas (Monitoring/Logging)
+Hermes menawarkan beberapa cara monitoring:
+
+Log bawaan: Hermes mencatat aktivitas dalam format JSONL. Pengguna dapat memantau log ini secara lokal.
+Plugin Resmi: Langfuse – Plugin resmi yang men-trace setiap “turn” Hermes dan panggilan LLM ke Langfuse (Open Source tracing). Jejak berisi detail token, biaya, dll. Instal via hermes plugins install langfuse.
+Plugin Komunitas: Tersedia plugin observasi lain:
+hermes-telemetry – mencatat token, biaya, laten, dsb per sesi (SQLite, plus perintah /stats /budget).
+traceverse_hermes_otel – ekspor OpenTelemetry (OTLP) berisi trace tiap turn, panggilan LLM, panggilan tool (termasuk atribut genAI seperti model, token, biaya).
+session-lens – dasbor read-only analisa sesi (plugin komunitas).
+Alibaba Hermes Observability – integrasi OpenTelemetry via Alibaba (blog Alibaba, plugin eksperimental).
+Tidak ada variabel API key khusus untuk observasi kecuali plugin (contoh Langfuse: HERMES_LANGFUSE_PUBLIC_KEY/SECRET_KEY). Secara resmi, Hermes tidak mengunci integrasi tertentu; pengembang bebas menggunakan OpenTelemetry, Sentry, dll. dengan plugin sesuai kebijakan Hermes (lihat [76†L87-L90]).
+
+Penyebaran & Runtime (Deployment/Runtime)
+Hermes fleksibel dalam penyebaran:
+
+Desktop/App Packages: Binar signed resmi untuk Windows (.appinstaller/MSIX) dan macOS (DMG).
+Script Instaler (CLI): curl https://hermes-agent.nousresearch.com/install.sh | bash untuk Linux/macOS/WSL; PowerShell installer untuk Windows. Sumber (Python/Node.js/FFmpeg) disiapkan oleh tool PM.
+Termux (Android): Paket Termux di repo resmi (aarch64).
+Nix/NixOS: Ada panduan instalasi khusus.
+Docker: Gambar nousresearch/hermes-agent (masukkan ke /opt/hermes). Data default di /opt/data.
+Hermes Cloud (SaaS): Layanan hosting Agent di Nous Portal. Dikelola via web atau MCP (lihat bagian Manage Hermes Cloud).
+Lokasi data/config default: ~/.hermes/ (Linux/macOS) atau %LOCALAPPDATA%\hermes\ (Windows). Variabel HERMES_HOME dapat mengubah direktori ini. Installer script mendukung flag seperti --skip-browser. Update otomatis (pada channel stable) via hermes update.
+
+Konfigurasi
+Semua provider di atas dikonfigurasi melalui file ~/.hermes/config.yaml dan/atau .env. Kunci rahasia (API key) sebaiknya di .env. Contoh:
+
+FIRECRAWL_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, dsb.
+Pilihan provider tool/penelusuran dapat diubah lewat CLI: hermes config set web.search_backend, hermes config set tts.provider, dll.
+Dokumentasi referensi konfigurasi mencakup semua opsi (contoh tabel [68†L69-L76] untuk web search, [78†L74-L81] untuk TTS, [79†L25-L28] untuk STT, [52†L276-L284] untuk SSH terminal) serta pengaturan global (profil, security.allow_lazy_installs, HERMES_LOCAL_STT_COMMAND dll). Jika instalasi via Nous Portal, hermes setup --portal akan mengisi banyak kunci sekaligus dengan OAuth.
+Sumber primer informasi di atas antara lain dokumentasi resmi Hermes Agent (repo NousResearch/hermes-agent README, website Hermes Agent docs), beserta changelog dan halaman integrasi resmi. Setiap provider di atas dicantumkan dengan status dukungan (resmi/opsional) di dokumen tersebut.
+
+Referensi: Dokumentasi resmi Hermes Agent (Nous Research) dan repositori terkait per 19 Nov 2026. Setiap keterangan di atas telah diambil dari sumber primer dokumentasi tersebut.
